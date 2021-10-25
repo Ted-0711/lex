@@ -42,7 +42,7 @@ function createMenu() {
         {
           label: 'Source Code (Github Repo)',
           click: () => {
-            shell.openExternal('https://github.com/Ted-0711/sort-visualization/')
+            shell.openExternal('https://github.com/Ted-0711/lex/')
           }
         },
         {

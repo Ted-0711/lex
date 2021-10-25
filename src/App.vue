@@ -110,39 +110,107 @@ export default {
       strToken: "",
       finishFlag: false,
       errFlag: false,
+      // 关键字表
       reserve: [
-        "dim",
-        "stop",
-        "while",
-        "do",
-        "break",
+        "alignas",
+        "alignof",
+        "and",
+        "and_eq",
+        "asm",
+        "atomic_cancel",
+        "atomic_commit",
+        "atomic_noexcept",
         "auto",
-        "int",
-        "double",
-        "float",
-        "unsigned",
-        "const",
-        "void",
-        "return",
-        "sizeof",
-        "switch",
-        "continue",
-        "if",
-        "else",
+        "bitand",
+        "bitor",
+        "bool",
+        "break",
         "case",
-        "default",
-        "string",
-        "for",
+        "catch",
         "char",
-        "private",
-        "public",
+        "char8_t",
+        "char16_t",
+        "char32_t",
         "class",
-        "operator",
+        "compl",
+        "concept",
+        "const",
+        "consteval",
+        "constexpr",
+        "constinit",
+        "const_cast",
+        "continue",
+        "co_await",
+        "co_return",
+        "co_yield",
+        "decltype",
+        "default",
+        "delete",
+        "do",
+        "double",
+        "dynamic_cast",
+        "else",
+        "enum",
+        "explicit",
+        "export",
+        "extern",
+        "false",
+        "float",
+        "for",
         "friend",
-        "begin",
-        "end",
+        "goto",
+        "if",
+        "inline",
+        "int",
+        "long",
+        "mutable",
+        "namespace",
+        "new",
+        "noexcept",
+        "not",
+        "not_eq",
+        "nullptr",
+        "operator",
+        "or",
+        "or_eq",
+        "private",
+        "protected",
+        "public",
+        "reflexpr",
+        "register",
+        "reinterpret_cast",
+        "requires",
+        "return",
+        "short",
+        "signed",
+        "sizeof",
         "static",
+        "static_assert",
+        "static_cast",
+        "struct",
+        "switch",
+        "synchronized",
+        "template",
+        "this",
+        "thread_local",
+        "throw",
+        "true",
+        "try",
+        "typedef",
+        "typeid",
+        "typename",
+        "union",
+        "unsigned",
+        "using",
+        "virtual",
+        "void",
+        "volatile",
+        "wchar_t",
+        "while",
+        "xor",
+        "xor_eq",
       ],
+      // 符号表（运算符、界符）
       symbol: [
         "=",
         "+",
@@ -189,6 +257,7 @@ export default {
   },
   computed: {},
   methods: {
+    // 获取源代码
     getSourceCode() {
       this.stat = 0;
       dialog
@@ -242,18 +311,28 @@ export default {
         if (!inAnnotation && !inString) {
           // 处理#include
           if (lineList[i].slice(0, 8) == "#include") {
-            includeFilePath = path.join(
-              path.dirname(this.filePath),
-              lineList[i].slice(
-                lineList[i].indexOf('"') + 1,
-                lineList[i].lastIndexOf('"')
-              )
-            );
+            let firstQuotPos = lineList[i].indexOf('"'),
+              lastQuotPos = lineList[i].lastIndexOf('"');
+            if (firstQuotPos != -1 && firstQuotPos != lastQuotPos) {
+              includeFilePath = path.join(
+                path.dirname(this.filePath),
+                lineList[i].slice(firstQuotPos + 1, lastQuotPos)
+              );
+            } else {
+              lineList.splice(i, 1);
+              i--;
+              this.$message({
+                showClose: true,
+                message: "Warning: 暂不支持除相对路径外的引用形式",
+                type: "warning",
+              });
+              continue;
+            }
             msg = ipcRenderer.sendSync("read-include-file", includeFilePath);
             if (msg.errFlag) {
               this.$message({
                 showClose: true,
-                message: msg.content,
+                message: "Error: " + msg.content,
                 type: "error",
               });
               return;
@@ -268,8 +347,8 @@ export default {
           // 处理#define
           if (lineList[i].slice(0, 7) == "#define") {
             itemList = lineList[i].split(/\s/);
-            if (itemList.length < 3) continue;
-            defineList.push({ before: itemList[1], after: itemList[2] });
+            if (itemList.length == 3)
+              defineList.push({ before: itemList[1], after: itemList[2] });
             lineList.splice(i, 1);
             i--;
             continue;
@@ -336,13 +415,15 @@ export default {
       this.resultString = this.preProcessResult;
       this.stat = 1;
     },
-    // 词法分析
+    // 判断ch中的字符是否为字母
     IsLetter() {
       return /[a-zA-Z_]/.test(this.ch);
     },
+    // 判断ch中的字符是否为数字
     IsDigit() {
       return /\d/.test(this.ch);
     },
+    // 将下一字符读到ch中，搜索指示器前移一字符位置
     GetChar() {
       if (this.pointer >= this.preProcessResult.length) {
         this.finishFlag = true;
@@ -352,23 +433,28 @@ export default {
       this.ch = this.preProcessResult[this.pointer];
       this.pointer++;
     },
+    // 检查ch中的字符是否为空白。若是，则调用GetChar直至ch中进入一个非空白字符
     GetBC() {
       while ((!this.finishFlag && this.ch == " ") || this.ch == "\t") {
         this.GetChar();
       }
     },
+    // 将ch中的字符连接到strToken之后
     Concat() {
       this.strToken += this.ch;
     },
+    //
     Retract() {
       this.pointer--;
     },
+    // 对strToken中的字符串查找保留字表，若它是一个保留字则返回它的编码，否则返回-1
     Reserve() {
       for (let i = 0; i < this.reserve.length; i++) {
         if (this.reserve[i] == this.strToken) return i;
       }
       return -1;
     },
+    // 将strToken中的标识符插入符号表，返回符号表指针
     InsertId() {
       let i;
       for (i = 0; i < this.idList.length; i++) {
@@ -377,6 +463,7 @@ export default {
       this.idList.push({ index: i + 1, value: this.strToken });
       return i + 1;
     },
+    // 将strToken中的常数插入常数表，返回常数表指针
     InsertConst(type, lastCh = "") {
       let i, tempList;
       if (type == "Int") tempList = this.constIntList;
@@ -385,8 +472,7 @@ export default {
       else if (type == "String") tempList = this.constStringList;
       else return;
       for (i = 0; i < tempList.length; i++) {
-        if (tempList[i].value == lastCh + this.strToken + lastCh)
-          return i + 1;
+        if (tempList[i].value == lastCh + this.strToken + lastCh) return i + 1;
       }
       tempList.push({
         index: i + 1,
@@ -399,6 +485,7 @@ export default {
       });
       return i + 1;
     },
+    // 错误处理
     ProcError() {
       if (!this.errFlag) {
         this.lexicalAnalysisResult += "<此处出现词法错误>";
@@ -410,6 +497,7 @@ export default {
       }
       return;
     },
+    // 词法分析程序
     lexicalAnalysis(word) {
       let code, value, lastCh;
       this.strToken = ""; // 置strToken为空串
@@ -505,8 +593,7 @@ export default {
         if (lastCh == '"') {
           value = this.InsertConst("String", lastCh);
           word.type = "Constant(String)";
-        }
-        else if (lastCh == "'") {
+        } else if (lastCh == "'") {
           value = this.InsertConst("Char", lastCh);
           word.type = "Constant(Char)";
         }
@@ -536,6 +623,7 @@ export default {
         return 1;
       }
     },
+    // 词法分析顶层程序
     lexicalAnalysisTop() {
       this.lexicalAnalysisResult = "";
       this.finishFlag = false;
@@ -555,7 +643,7 @@ export default {
       }
       this.resultString = this.lexicalAnalysisResult;
       this.stat = 0;
-      console.log(this.constList)
+      console.log(this.constList);
     },
   },
   mounted() {
