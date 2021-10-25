@@ -247,6 +247,7 @@ export default {
       ],
       singleSymbol: [";", "(", ")", "{", "}", "[", "]", ",", "."],
       doublenESymbol: ["=", "+", "-", "*", "&", "|"],
+      EqualSymbol: ["/", "%", "!", "^"],
       idList: [],
       constList: [],
       constIntList: [],
@@ -330,12 +331,14 @@ export default {
             }
             msg = ipcRenderer.sendSync("read-include-file", includeFilePath);
             if (msg.errFlag) {
+              lineList.splice(i, 1);
+              i--;
               this.$message({
                 showClose: true,
-                message: "Error: " + msg.content,
-                type: "error",
+                message: "Warning: 无法打开引用文件，请检查相对路径的正确性",
+                type: "warning",
               });
-              return;
+              continue;
             }
             includeLines = textDecoder.decode(msg.content).split("\r\n");
             lineList.splice(i, 1, ...includeLines);
@@ -347,7 +350,7 @@ export default {
           // 处理#define
           if (lineList[i].slice(0, 7) == "#define") {
             itemList = lineList[i].split(/\s/);
-            if (itemList.length == 3)
+            if (itemList.length >= 3)
               defineList.push({ before: itemList[1], after: itemList[2] });
             lineList.splice(i, 1);
             i--;
@@ -373,11 +376,11 @@ export default {
                 lineList[i].slice(j + 1);
               j = annotationStartPos;
             }
-          } else if (lineList[i][j] == '"') {
+          } else if (!inAnnotation && lineList[i][j] == '"') {
             inString = !inString;
           }
           // 空白符
-          else if (!inString && /\s/.test(lineList[i][j])) {
+          else if (!inString && !inAnnotation && /\s/.test(lineList[i][j])) {
             for (
               k = j + 1;
               k < lineList[i].length && /\s/.test(lineList[i][k]);
@@ -386,11 +389,9 @@ export default {
             lineList[i] = lineList[i].slice(0, j) + " " + lineList[i].slice(k);
           }
           // 位于跨行注释中
-          if (inAnnotation) {
-            if (j >= lineList[i].length - 1) {
-              lineList[i] = lineList[i].slice(0, annotationStartPos);
-              annotationStartPos = 0;
-            }
+          if (inAnnotation && j >= lineList[i].length - 1) {
+            lineList[i] = lineList[i].slice(0, annotationStartPos);
+            annotationStartPos = 0;
           }
         }
         // 去除前后空白符
@@ -399,18 +400,48 @@ export default {
         if (lineList[i].length == 0) {
           lineList.splice(i, 1);
           i--;
+        } else {
+          // 宏定义替换
+          // for (j = 0; j < defineList.length; j++) {
+          //   lineList[i] = lineList[i].replaceAll(
+          //     defineList[j].before,
+          //     defineList[j].after
+          //   );
+          // }
+          // Better Version
+          let p = lineList[i].length,
+            tmpInString,
+            lastIndex;
+          for (j = 0; j < defineList.length; j++) {
+            tmpInString = inString;
+            lastIndex = lineList[i].slice(0, p).lastIndexOf(defineList[j].before);
+            while (lastIndex != -1) {
+              for (
+                k = p - 1;
+                k >= lastIndex + defineList[j].before.length;
+                k--
+              ) {
+                if (lineList[i][k] == '"') {
+                  tmpInString = !tmpInString;
+                }
+              }
+              console.log("lastIndex: ", lastIndex);
+              console.log("tmpInString: ", tmpInString);
+              if (!tmpInString) {
+                lineList[i] =
+                  lineList[i].slice(0, lastIndex) +
+                  defineList[j].after +
+                  lineList[i].slice(lastIndex + defineList[j].before.length);
+              }
+              p = lastIndex;
+              lastIndex = lineList[i].slice(0, p).lastIndexOf(defineList[j].before);
+            }
+          }
         }
       }
       this.preProcessResult = "";
       for (i = 0; i < lineList.length; i++) {
         this.preProcessResult += lineList[i] + "\r\n";
-      }
-      // 宏定义替换
-      for (i = 0; i < defineList.length; i++) {
-        this.preProcessResult = this.preProcessResult.replaceAll(
-          defineList[i].before,
-          defineList[i].after
-        );
       }
       this.resultString = this.preProcessResult;
       this.stat = 1;
@@ -464,7 +495,7 @@ export default {
       return i + 1;
     },
     // 将strToken中的常数插入常数表，返回常数表指针
-    InsertConst(type, lastCh = "") {
+    InsertConst(type) {
       let i, tempList;
       if (type == "Int") tempList = this.constIntList;
       else if (type == "Float") tempList = this.constFloatList;
@@ -472,16 +503,16 @@ export default {
       else if (type == "String") tempList = this.constStringList;
       else return;
       for (i = 0; i < tempList.length; i++) {
-        if (tempList[i].value == lastCh + this.strToken + lastCh) return i + 1;
+        if (tempList[i].value == this.strToken) return i + 1;
       }
       tempList.push({
         index: i + 1,
-        value: lastCh + this.strToken + lastCh,
+        value: this.strToken,
       });
       this.constList.push({
         index: i + 1,
         type: type,
-        value: lastCh + this.strToken + lastCh,
+        value: this.strToken,
       });
       return i + 1;
     },
@@ -549,64 +580,65 @@ export default {
       } else if (this.singleSymbol.indexOf(this.ch) != -1) {
         word.type = this.ch;
       } else if (this.doublenESymbol.indexOf(this.ch) != -1) {
-        lastCh = this.ch;
+        this.Concat();
         this.GetChar();
         if (this.ch == "=" || this.ch == lastCh) {
-          word.type = lastCh + this.ch;
+          this.Concat();
         } else {
           this.Retract();
-          word.type = lastCh;
         }
-      } else if (this.ch == "/" || this.ch == "%" || this.ch == "!") {
-        lastCh = this.ch;
+        word.type = this.strToken;
+      } else if (this.EqualSymbol.indexOf(this.ch) != -1) {
+        this.Concat();
         this.GetChar();
         if (this.ch == "=") {
-          word.type = lastCh + this.ch;
+          this.Concat();
         } else {
           this.Retract();
-          word.type = lastCh;
         }
+        word.type = this.strToken;
       } else if (this.ch == ">" || this.ch == "<") {
-        lastCh = this.ch;
+        this.Concat();
         this.GetChar();
         if (this.ch == "=") {
-          word.type = lastCh + this.ch;
-        } else if (this.ch == lastCh) {
+          this.Concat();
+        } else if (this.ch == this.strToken[0]) {
+          this.Concat();
           this.GetChar();
           if (this.ch == "=") {
-            word.type = lastCh + lastCh + this.ch;
+            this.Concat();
           } else {
             this.Retract();
-            word.type = lastCh + lastCh;
           }
         } else {
           this.Retract();
-          word.type = lastCh;
         }
+        word.type = this.strToken;
       } else if (this.ch == '"' || this.ch == "'") {
-        lastCh = this.ch;
+        this.Concat();
         this.GetChar();
-        while (!this.finishFlag && this.ch != lastCh) {
+        while (!this.finishFlag && this.ch != this.strToken[0]) {
           this.Concat();
           this.GetChar();
         }
-        if (lastCh == '"') {
-          value = this.InsertConst("String", lastCh);
+        this.Concat();
+        if (this.strToken[0] == '"') {
+          value = this.InsertConst("String");
           word.type = "Constant(String)";
-        } else if (lastCh == "'") {
-          value = this.InsertConst("Char", lastCh);
+        } else if (this.strToken[0] == "'") {
+          value = this.InsertConst("Char");
           word.type = "Constant(Char)";
         }
         word.prop = value;
       } else if (this.ch == ":") {
-        lastCh = ":";
+        this.Concat();
         this.GetChar();
-        if (this.ch == lastCh) {
-          word.type = "::";
+        if (this.ch == this.strToken[0]) {
+          this.Concat();
         } else {
           this.Retract();
-          word.type = ":";
         }
+        word.type = this.strToken;
       } else if (this.ch == "\n" || this.ch == "\r") {
         this.GetChar();
         while (!this.finishFlag && (this.ch == "\n" || this.ch == "\r")) {
