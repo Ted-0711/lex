@@ -8,7 +8,7 @@
         <el-main id="main">
           <el-input
             type="textarea"
-            rows="8"
+            rows="12"
             resize="none"
             placeholder="请选择源程序文件或直接输入源程序"
             v-model="sourceCode"
@@ -38,7 +38,7 @@
         <el-main id="main">
           <el-input
             type="textarea"
-            rows="8"
+            rows="12"
             resize="none"
             placeholder="请选择要进行的操作"
             :readonly="true"
@@ -63,10 +63,10 @@
         </el-footer>
       </div>
     </el-row>
-    <el-row>
+    <el-row style="height: 50%">
       <el-col :span="12">
         <h2>符号表</h2>
-        <el-table height="280" :data="idList" style="width: 100%">
+        <el-table height="300" :data="idList" style="width: 100%">
           <el-table-column prop="index" label="序号" align="center" sortable>
           </el-table-column>
           <el-table-column prop="value" label="标识符" align="center" sortable>
@@ -75,7 +75,7 @@
       </el-col>
       <el-col :span="12">
         <h2>常量表</h2>
-        <el-table height="280" :data="constList" style="width: 100%">
+        <el-table height="300" :data="constList" style="width: 100%">
           <el-table-column prop="type" label="类型" align="center" sortable>
           </el-table-column>
           <el-table-column prop="index" label="序号" align="center" sortable>
@@ -211,43 +211,9 @@ export default {
         "xor_eq",
       ],
       // 符号表（运算符、界符）
-      symbol: [
-        "=",
-        "+",
-        "*",
-        "**",
-        ",",
-        "}",
-        "(",
-        "{",
-        ")",
-        ">=",
-        "==",
-        "<=",
-        "<",
-        ">",
-        "-",
-        "/",
-        "++",
-        "--",
-        "+=",
-        "-=",
-        "&&",
-        "&",
-        "|",
-        "||",
-        "!=",
-        "!",
-        "<<",
-        ">>",
-        ":",
-        "::",
-        ".",
-        "%",
-      ],
-      singleSymbol: [";", "(", ")", "{", "}", "[", "]", ",", "."],
-      doublenESymbol: ["=", "+", "-", "*", "&", "|"],
-      EqualSymbol: ["/", "%", "!", "^"],
+      singleSymbol: [";", "(", ")", "{", "}", "[", "]", ",", ".", "~"],
+      doublenESymbol: ["=", "+", "-", "&", "|"],
+      EqualSymbol: ["*", "/", "%", "!", "^"],
       idList: [],
       constList: [],
       constIntList: [],
@@ -335,7 +301,7 @@ export default {
               i--;
               this.$message({
                 showClose: true,
-                message: "Warning: 无法打开引用文件，请检查相对路径的正确性",
+                message: "Warning: 无法打开被引用文件，请检查相对路径的正确性",
                 type: "warning",
               });
               continue;
@@ -369,7 +335,7 @@ export default {
               inAnnotation = true;
               annotationStartPos = j;
               j++;
-            } else if (j != 0 && lineList[i][j - 1] == "*") {
+            } else if (inAnnotation && j != 0 && lineList[i][j - 1] == "*") {
               inAnnotation = false;
               lineList[i] =
                 lineList[i].slice(0, annotationStartPos) +
@@ -414,7 +380,9 @@ export default {
             lastIndex;
           for (j = 0; j < defineList.length; j++) {
             tmpInString = inString;
-            lastIndex = lineList[i].slice(0, p).lastIndexOf(defineList[j].before);
+            lastIndex = lineList[i]
+              .slice(0, p)
+              .lastIndexOf(defineList[j].before);
             while (lastIndex != -1) {
               for (
                 k = p - 1;
@@ -434,7 +402,9 @@ export default {
                   lineList[i].slice(lastIndex + defineList[j].before.length);
               }
               p = lastIndex;
-              lastIndex = lineList[i].slice(0, p).lastIndexOf(defineList[j].before);
+              lastIndex = lineList[i]
+                .slice(0, p)
+                .lastIndexOf(defineList[j].before);
             }
           }
         }
@@ -522,7 +492,7 @@ export default {
         this.lexicalAnalysisResult += "<此处出现词法错误>";
       }
       this.errFlag = true;
-      this.GetChar();
+      // this.GetChar();
       if (this.pointer >= this.preProcessResult.length) {
         this.finishFlag = true;
       }
@@ -530,14 +500,14 @@ export default {
     },
     // 词法分析程序
     lexicalAnalysis(word) {
-      let code, value, lastCh;
+      let code, value;
       this.strToken = ""; // 置strToken为空串
-      this.errFlag = false;
       this.GetChar();
       this.GetBC();
       if (this.finishFlag) return 0;
       word.prop = "-";
       if (this.IsLetter()) {
+        this.errFlag = false;
         while (!this.finishFlag && (this.IsLetter() || this.IsDigit())) {
           this.Concat();
           this.GetChar();
@@ -552,6 +522,7 @@ export default {
           word.type = this.reserve[code];
         }
       } else if (this.IsDigit()) {
+        this.errFlag = false;
         while (!this.finishFlag && this.IsDigit()) {
           this.Concat();
           this.GetChar();
@@ -578,17 +549,20 @@ export default {
         }
         word.prop = value;
       } else if (this.singleSymbol.indexOf(this.ch) != -1) {
+        this.errFlag = false;
         word.type = this.ch;
       } else if (this.doublenESymbol.indexOf(this.ch) != -1) {
+        this.errFlag = false;
         this.Concat();
         this.GetChar();
-        if (this.ch == "=" || this.ch == lastCh) {
+        if (this.ch == "=" || this.ch == this.strToken[0]) {
           this.Concat();
         } else {
           this.Retract();
         }
         word.type = this.strToken;
       } else if (this.EqualSymbol.indexOf(this.ch) != -1) {
+        this.errFlag = false;
         this.Concat();
         this.GetChar();
         if (this.ch == "=") {
@@ -598,6 +572,7 @@ export default {
         }
         word.type = this.strToken;
       } else if (this.ch == ">" || this.ch == "<") {
+        this.errFlag = false;
         this.Concat();
         this.GetChar();
         if (this.ch == "=") {
@@ -615,6 +590,7 @@ export default {
         }
         word.type = this.strToken;
       } else if (this.ch == '"' || this.ch == "'") {
+        this.errFlag = false;
         this.Concat();
         this.GetChar();
         while (!this.finishFlag && this.ch != this.strToken[0]) {
@@ -631,6 +607,7 @@ export default {
         }
         word.prop = value;
       } else if (this.ch == ":") {
+        this.errFlag = false;
         this.Concat();
         this.GetChar();
         if (this.ch == this.strToken[0]) {
@@ -640,6 +617,7 @@ export default {
         }
         word.type = this.strToken;
       } else if (this.ch == "\n" || this.ch == "\r") {
+        this.errFlag = false;
         this.GetChar();
         while (!this.finishFlag && (this.ch == "\n" || this.ch == "\r")) {
           this.GetChar();
